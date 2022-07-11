@@ -9,7 +9,9 @@ pragma solidity ^0.8.9;
 interface IVault {
     function deposit(uint256 amount) external;
 
-    function withdraw() external;
+    function withdraw(uint amount) external;
+
+    function withdrawAll() external;
 
     function claimRewards() external;
 
@@ -44,7 +46,6 @@ contract Vault is IVault, Ownable {
     uint public lockupPeriod;
 
     uint private _totalStaked;
-    uint internal _precision = 1E6;
 
     mapping(address => uint) public staked;
     mapping(address => uint) private _rewardsToClaim;
@@ -82,7 +83,47 @@ contract Vault is IVault, Ownable {
         _userStartTime[_msgSender()] = block.timestamp;
     }
 
-    function withdraw() external override {}
+    function withdraw(uint amount) external override {
+        require(
+            block.timestamp >= lockupPeriod,
+            "No withdraw until lockup ends"
+        );
+        require(amount > 0, "Amount must be greater than 0");
+        require(
+            amount <= staked[_msgSender()],
+            "Amount higher than stakedAmount"
+        );
+
+        _updateRewards();
+        if (_rewardsToClaim[_msgSender()] > 0) {
+            _claimRewards();
+        }
+        _totalStaked -= amount;
+        staked[_msgSender()] -= amount;
+        token.safeTransfer(_msgSender(), amount);
+
+        emit Withdraw(_msgSender(), amount);
+    }
+
+    function withdrawAll() external override {
+        require(
+            block.timestamp >= lockupPeriod,
+            "No withdraw until lockup ends"
+        );
+
+        _updateRewards();
+        if (_rewardsToClaim[_msgSender()] > 0) {
+            _claimRewards();
+        }
+
+        _userStartTime[_msgSender()] = 0;
+        _totalStaked -= staked[_msgSender()];
+        uint stakedBalance = staked[_msgSender()];
+        staked[_msgSender()] = 0;
+        token.safeTransfer(_msgSender(), stakedBalance);
+
+        emit Withdraw(_msgSender(), stakedBalance);
+    }
 
     function claimRewards() external override {
         _claimRewards();
