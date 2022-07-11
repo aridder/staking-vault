@@ -13,7 +13,7 @@ interface IVault {
 
     function claimRewards() external;
 
-    function rewardOf(address user) external view;
+    function rewardOf(address user) external view returns (uint);
 
     function totalDeposited() external view returns (uint);
 
@@ -88,7 +88,9 @@ contract Vault is IVault, Ownable {
         _claimRewards();
     }
 
-    function rewardOf(address user) external view override {}
+    function rewardOf(address user) external view override returns (uint) {
+        return _calculateRewards(user);
+    }
 
     function amountStaked(address stakeHolder)
         external
@@ -120,11 +122,15 @@ contract Vault is IVault, Ownable {
         }
 
         bool early = startPeriod > _userStartTime[stakeHolder];
+
         uint stakingTime = early
             ? block.timestamp - startPeriod
-            : block.timestamp - (_userStartTime[stakeHolder]);
+            : block.timestamp - _userStartTime[stakeHolder];
 
-        return ((stakingTime / 365 days) * staked[stakeHolder]) / fixedAPY;
+        return
+            (((100 * stakingTime) / 365 days) *
+                staked[stakeHolder] *
+                fixedAPY) / 100000;
     }
 
     function _claimRewards() private {

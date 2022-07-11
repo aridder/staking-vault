@@ -1,4 +1,4 @@
-import { loadFixture } from "@nomicfoundation/hardhat-network-helpers";
+import { loadFixture, time } from "@nomicfoundation/hardhat-network-helpers";
 import { expect } from "chai";
 import { ethers } from "hardhat";
 import { n18 } from "./helpers";
@@ -9,6 +9,8 @@ describe("Vault Pool", () => {
     const ONE_GWEI = 1_000_000_000;
     const unlockDuration = THREE_MONTHS_IN_SECONDS;
 
+    const unlockTime = (await time.latest()) + THREE_MONTHS_IN_SECONDS;
+
     const [owner, staker1, staker2] = await ethers.getSigners();
 
     const Vault = await ethers.getContractFactory("Vault");
@@ -18,9 +20,17 @@ describe("Vault Pool", () => {
     await token.transfer(staker1.address, n18("1000"));
     await token.transfer(staker2.address, n18("1000"));
 
-    const vault = await Vault.deploy(token.address, 9, 90, 90);
+    const vault = await Vault.deploy(token.address, 89, 90, 90);
 
-    return { vault, token, unlockDuration, owner, staker1, staker2 };
+    return {
+      vault,
+      token,
+      unlockDuration,
+      owner,
+      staker1,
+      staker2,
+      unlockTime,
+    };
   }
 
   describe("Deployment", () => {
@@ -69,6 +79,58 @@ describe("Vault Pool", () => {
       await vault.deposit(n18("100"));
       expect(await vault.amountStaked(owner.address)).to.equal(n18("100"));
       expect(await vault.totalDeposited()).to.equal(n18("100"));
+    });
+
+    it("2 stakers can deposit", async () => {
+      const { vault, token, owner, staker1 } = await loadFixture(
+        deployTokenAndVault
+      );
+
+      expect(await token.balanceOf(vault.address)).to.equal(0);
+
+      await token.approve(vault.address, n18("100"));
+      await vault.deposit(n18("100"));
+
+      await token.connect(staker1).approve(vault.address, n18("100"));
+      await vault.connect(staker1).deposit(n18("100"));
+
+      expect(await vault.amountStaked(owner.address)).to.equal(n18("100"));
+      expect(await vault.amountStaked(staker1.address)).to.equal(n18("100"));
+
+      expect(await vault.totalDeposited()).to.equal(n18("200"));
+    });
+  });
+
+  describe("Staking", () => {
+    it("Owner can start staking", async () => {
+      const { vault, token, owner, staker1 } = await loadFixture(
+        deployTokenAndVault
+      );
+
+      await expect(vault.connect(staker1).startStaking()).to.be.revertedWith(
+        "Ownable: caller is not the owner"
+      );
+
+      await expect(vault.startStaking()).to.emit(vault, "StartStaking");
+    });
+
+    it("Three months staking will pay off", async () => {
+      const { vault, token, owner, staker1, unlockTime } = await loadFixture(
+        deployTokenAndVault
+      );
+      await token.approve(vault.address, n18("100"));
+      await expect(vault.deposit(n18("100"))).to.emit(vault, "Deposit");
+
+      await expect(vault.startStaking()).to.emit(vault, "StartStaking");
+      expect(await vault.rewardOf(owner.address)).to.be.equal(n18("0"));
+
+      await time.increaseTo(unlockTime);
+
+      const reward = await vault.rewardOf(owner.address);
+
+      console.log("reward here", reward);
+      // TODO fix precision
+      expect(reward).to.be.closeTo(n18("8.9").div(365).mul(90), n18("0.1"));
     });
   });
 
