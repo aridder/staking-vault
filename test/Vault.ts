@@ -17,10 +17,10 @@ describe("Vault Pool", () => {
     const Token = await ethers.getContractFactory("Token");
 
     const token = await Token.deploy(n18("10000"));
+    const vault = await Vault.deploy(token.address, 89, 90, 90);
+    await token.transfer(vault.address, n18("5000"));
     await token.transfer(staker1.address, n18("1000"));
     await token.transfer(staker2.address, n18("1000"));
-
-    const vault = await Vault.deploy(token.address, 89, 90, 90);
 
     return {
       vault,
@@ -62,7 +62,7 @@ describe("Vault Pool", () => {
     it("Amount must be greater than 0", async () => {
       const { vault, token, owner } = await loadFixture(deployTokenAndVault);
 
-      expect(await token.balanceOf(vault.address)).to.equal(0);
+      expect(await token.balanceOf(vault.address)).to.equal(n18("5000"));
 
       await token.approve(vault.address, n18("100"));
       await expect(vault.deposit(n18("0"))).to.be.revertedWith(
@@ -73,7 +73,7 @@ describe("Vault Pool", () => {
     it("Can deposit", async () => {
       const { vault, token, owner } = await loadFixture(deployTokenAndVault);
 
-      expect(await token.balanceOf(vault.address)).to.equal(0);
+      expect(await token.balanceOf(vault.address)).to.equal(n18("5000"));
 
       await token.approve(vault.address, n18("100"));
       await vault.deposit(n18("100"));
@@ -86,7 +86,7 @@ describe("Vault Pool", () => {
         deployTokenAndVault
       );
 
-      expect(await token.balanceOf(vault.address)).to.equal(0);
+      expect(await token.balanceOf(vault.address)).to.equal(n18("5000"));
 
       await token.approve(vault.address, n18("100"));
       await vault.deposit(n18("100"));
@@ -112,6 +112,16 @@ describe("Vault Pool", () => {
       );
 
       await expect(vault.startStaking()).to.emit(vault, "StartStaking");
+    });
+
+    it("Can only start staking once", async () => {
+      const { vault, owner } = await loadFixture(deployTokenAndVault);
+
+      await vault.startStaking();
+
+      await expect(vault.connect(owner).startStaking()).to.be.revertedWith(
+        "Staking has already started"
+      );
     });
 
     it("Three months staking will pay off", async () => {
@@ -167,9 +177,15 @@ describe("Vault Pool", () => {
     });
   });
 
-  //   describe("Withdrawals", () => {
-  //     it("Should revert with right error if called to soon", async () => {
-  //       const { vault } = await loadFixture(deployTokenAndVault);
-  //     });
-  //   });
+  describe("Withdraw", () => {
+    it("Should be able to withdraw deposit and rewards", async () => {
+      const { vault, token, owner, staker1, unlockTime, unlockDuration } =
+        await loadFixture(deployTokenAndVault);
+      await token.approve(vault.address, n18("100"));
+      await vault.deposit(n18("100"));
+      await vault.startStaking();
+      await time.increaseTo((await time.latest()) + unlockDuration);
+      await vault.withdrawAll();
+    });
+  });
 });

@@ -94,10 +94,7 @@ contract Vault is IVault, Ownable {
             "Amount higher than stakedAmount"
         );
 
-        _updateRewards();
-        if (_rewardsToClaim[_msgSender()] > 0) {
-            _claimRewards();
-        }
+        _claimRewards();
         _totalStaked -= amount;
         staked[_msgSender()] -= amount;
         token.safeTransfer(_msgSender(), amount);
@@ -111,11 +108,7 @@ contract Vault is IVault, Ownable {
             "No withdraw until lockup ends"
         );
 
-        _updateRewards();
-        if (_rewardsToClaim[_msgSender()] > 0) {
-            _claimRewards();
-        }
-
+        _claimRewards();
         _userStartTime[_msgSender()] = 0;
         _totalStaked -= staked[_msgSender()];
         uint stakedBalance = staked[_msgSender()];
