@@ -128,9 +128,42 @@ describe("Vault Pool", () => {
 
       const reward = await vault.rewardOf(owner.address);
 
-      console.log("reward here", reward);
       // TODO fix precision
       expect(reward).to.be.closeTo(n18("8.9").div(365).mul(90), n18("0.1"));
+    });
+
+    it("After claim, should be 0 left to claim", async () => {
+      const { vault, token, owner, staker1, unlockTime } = await loadFixture(
+        deployTokenAndVault
+      );
+      await token.approve(vault.address, n18("100"));
+      await vault.deposit(n18("100"));
+
+      await expect(vault.startStaking()).to.emit(vault, "StartStaking");
+      await time.increaseTo(unlockTime);
+
+      await vault.claimRewards();
+
+      const rewardAfterClaim = await vault.rewardOf(owner.address);
+
+      expect(rewardAfterClaim).to.equal(n18("0"));
+    });
+
+    it("After claim, and wait 3 months more, should be able to claim again", async () => {
+      const { vault, token, owner, staker1, unlockTime } = await loadFixture(
+        deployTokenAndVault
+      );
+      await token.approve(vault.address, n18("100"));
+      await vault.deposit(n18("100"));
+      await vault.startStaking();
+      await time.increaseTo(unlockTime);
+      await vault.claimRewards();
+
+      await time.increaseTo((await time.latest()) + 90 * 24 * 60 * 60);
+      await vault.claimRewards();
+
+      const rewardAfterLastClaim = await vault.rewardOf(owner.address);
+      expect(rewardAfterLastClaim).to.equal(n18("0"));
     });
   });
 
