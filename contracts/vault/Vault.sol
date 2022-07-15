@@ -6,7 +6,27 @@ import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 pragma solidity ^0.8.9;
 
+interface IAngleVault {
+    function deposit(
+        address _staker,
+        uint256 _amount,
+        bool _earn
+    ) external;
+
+    function withdraw(uint256 _shares) external;
+
+    function withdrawAll() external;
+}
+
 interface IVault {
+    // Functions for interacting with underlying vault
+
+    function depositToVault() external;
+
+    function withdrawAllFundsfromVault() external;
+
+    // Function for vault
+
     function deposit(uint256 amount) external;
 
     function withdraw(uint amount) external;
@@ -23,6 +43,12 @@ interface IVault {
 
     function startStaking() external;
 
+    function rescueERC20(
+        address _token,
+        uint256 _amount,
+        address _recipient
+    ) external;
+
     event Deposit(address indexed owner, uint amount);
 
     event StartStaking(uint startPeriod, uint lockupPeriod);
@@ -30,12 +56,17 @@ interface IVault {
     event Withdraw(address indexed owner, uint amount);
 
     event Claim(address indexed stakeHolder, uint amount);
+
+    event ERC20Rescued(address token, uint _amount);
 }
 
 contract Vault is IVault, Ownable {
     using SafeERC20 for IERC20;
 
     IERC20 public immutable token;
+    IAngleVault vault;
+    uint private _totalVaultDeposit;
+    bool private vaultOpenForDeposits = true;
 
     uint8 public immutable fixedAPY;
 
@@ -55,15 +86,46 @@ contract Vault is IVault, Ownable {
         address _token,
         uint8 _fixedAPY,
         uint _durationInDays,
-        uint _lockDurationInDays
+        uint _lockDurationInDays,
+        address _vault
     ) {
         stakingDuration = _durationInDays * 1 days;
         lockupDuration = _lockDurationInDays * 1 days;
         token = IERC20(_token);
         fixedAPY = _fixedAPY;
+        vault = IAngleVault(_vault);
     }
 
-    function deposit(uint256 amount) external override {
+    modifier openForDeposits() {
+        require(vaultOpenForDeposits, "Vault is closed for deposits");
+        _;
+    }
+
+    function depositToVault() public onlyOwner {
+        require(_totalStaked > 0, "vault is empty");
+        vault.deposit(address(this), _totalStaked, true);
+    }
+
+    function withdrawAllFundsfromVault() public onlyOwner {
+        vault.withdrawAll();
+    }
+
+    /// @notice A function that rescue any ERC20 token
+    /// @param _token token address
+    /// @param _amount amount to rescue
+    /// @param _recipient address to send token rescued
+    function rescueERC20(
+        address _token,
+        uint256 _amount,
+        address _recipient
+    ) external onlyOwner {
+        require(_amount > 0, "set an amount > 0");
+        require(_recipient != address(0), "can't be zero address");
+        IERC20(_token).safeTransfer(_recipient, _amount);
+        emit ERC20Rescued(_token, _amount);
+    }
+
+    function deposit(uint256 amount) external override openForDeposits {
         require(amount > 0, "Amount must be greater than 0");
 
         if (_userStartTime[_msgSender()] == 0) {
@@ -141,6 +203,8 @@ contract Vault is IVault, Ownable {
 
     function startStaking() external override onlyOwner {
         require(startPeriod == 0, "Staking has already started");
+        vaultOpenForDeposits = false;
+        depositToVault();
         startPeriod = block.timestamp;
         lockupPeriod = block.timestamp + lockupDuration;
         emit StartStaking(startPeriod, lockupDuration);
